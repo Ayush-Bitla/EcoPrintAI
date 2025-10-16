@@ -2,10 +2,16 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import plotly.express as px
 import trimesh
 from io import BytesIO
-import joblib  # Added for potential sklearn compatibility
+import joblib  # For sklearn compatibility if needed
+
+# Delayed import for plotly to debug
+try:
+    import plotly.express as px
+except Exception as e:
+    st.error(f"Failed to import plotly: {e}. Check installation logs.")
+    raise
 
 DATA_PATH = 'materials_data.csv'
 MODEL_PATH = 'model.pkl'
@@ -36,7 +42,7 @@ def process_stl_file(uploaded_file):
         if volume_raw <= 0 or not mesh.is_watertight or not mesh.is_volume:
             st.warning("STL mesh is not watertight, has zero volume, or is 2D. Attempting repair and estimation.")
             mesh.fill_holes()
-            mesh.fix_normals()  # Added for better watertightness
+            mesh.fix_normals()
             repaired_volume = mesh.volume / 1_000_000
             if show_debug:
                 st.write(f"Debug: Repaired volume: {repaired_volume:.3f} cm³")
@@ -163,7 +169,7 @@ show_debug = st.sidebar.checkbox("Show Debug Output", value=False)
 
 # Process STL first
 if uploaded_file:
-    if uploaded_file.size > 10_000_000:  # 10MB limit
+    if uploaded_file.size > 10_000_000:
         st.error("File too large (max 10MB). Please upload a smaller STL.")
         volume_cm3, surface_area_cm2, stl_bytes = 1.0, 50.0, None
     else:
@@ -172,7 +178,7 @@ else:
     volume_cm3, surface_area_cm2, stl_bytes = 1.0, 50.0, None
     st.sidebar.info("No STL file uploaded. Using default volume (1 cm³) and surface area (50 cm²).")
 
-# Get recommendations with processed values
+# Get recommendations
 st.header("Recommendations")
 top_materials, filtered_data = get_recommendations(strength, flexibility, max_temp, budget, volume_cm3, surface_area_cm2, carbon_weight, recyclability_weight)
 
@@ -190,7 +196,6 @@ else:
     display_cols = ['material_name', 'type', 'tensile_strength', 'flexibility', 'max_temp', 
                     'cost_per_kg', 'recyclability', 'carbon_footprint', 'sustainability_score', 
                     'volume_cm3', 'surface_area_cm2']
-    # Ensure columns exist
     available_cols = [col for col in display_cols if col in top_materials.columns]
     top_display = top_materials[available_cols]
     st.dataframe(
