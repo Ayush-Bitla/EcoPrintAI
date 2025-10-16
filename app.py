@@ -2,15 +2,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import trimesh
+import matplotlib.pyplot as plt  # Switched to matplotlib for charts (Py 3.13 compatible)
 from io import BytesIO
-import joblib  # For sklearn compatibility if needed
+import joblib  # For sklearn compatibility
 
-# Delayed import for plotly to debug
+# Delayed import for trimesh to catch errors
 try:
-    import plotly.express as px
+    import trimesh
 except Exception as e:
-    st.error(f"Failed to import plotly: {e}. Check installation logs.")
+    st.error(f"Failed to import trimesh: {e}. Check installation and compatibility.")
     raise
 
 DATA_PATH = 'materials_data.csv'
@@ -139,7 +139,7 @@ def get_recommendations(strength, flexibility, max_temp, budget, volume_cm3, sur
     filtered_data['sustainability_score'] = filtered_data.apply(
         lambda row: compute_sustainability_score(row, carbon_w, recyclability_w, norm_factor), axis=1)
     filtered_data['combined_score'] = 0.6 * filtered_data['suitability_score'] + 0.4 * filtered_data['sustainability_score']
-    top_materials = filtered_data.sort_values('combined_score', ascending=False).head(5)
+    top_materials = filtered_data.sort_values('combined_combined_score', ascending=False).head(5)
     if show_debug:
         st.write(f"Debug: Filtered data columns: {list(filtered_data.columns)}")
     return top_materials, filtered_data
@@ -221,31 +221,23 @@ else:
     metrics = ['recyclability', 'biodegradability', 'energy_efficiency']
     available_metrics = [m for m in metrics if m in top_materials.columns]
     if available_metrics:
-        fig = px.bar(
-            top_materials,
-            x='material_name',
-            y=available_metrics,
-            title="Sustainability Metrics Comparison",
-            barmode='group',
-            color_discrete_map={'recyclability': '#4CAF50', 'biodegradability': '#2196F3', 'energy_efficiency': '#FF9800'},
-            labels={'value': 'Score', 'variable': 'Metric'}
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        fig, ax = plt.subplots()
+        top_materials.plot(x='material_name', y=available_metrics, kind='bar', ax=ax)
+        ax.set_title("Sustainability Metrics Comparison")
+        ax.set_ylabel("Score")
+        st.pyplot(fig)
     st.write("### Carbon Footprint vs Cost")
     if 'cost_per_kg' in top_materials.columns and 'carbon_footprint' in top_materials.columns:
-        fig2 = px.scatter(
-            top_materials,
-            x='cost_per_kg',
-            y='carbon_footprint',
-            text='material_name',
-            title="Carbon Footprint vs Cost",
-            color='sustainability_score',
-            size='sustainability_score',
-            color_continuous_scale='Viridis',
-            labels={'cost_per_kg': 'Cost ($/kg)', 'carbon_footprint': 'Carbon Footprint (kg CO2/kg)'}
-        )
-        fig2.update_traces(textposition='top center')
-        st.plotly_chart(fig2, use_container_width=True)
+        fig, ax = plt.subplots()
+        scatter = ax.scatter(top_materials['cost_per_kg'], top_materials['carbon_footprint'], 
+                             c=top_materials['sustainability_score'], s=top_materials['sustainability_score']*100, cmap='Viridis')
+        for i, txt in enumerate(top_materials['material_name']):
+            ax.annotate(txt, (top_materials['cost_per_kg'].iloc[i], top_materials['carbon_footprint'].iloc[i]))
+        ax.set_xlabel('Cost ($/kg)')
+        ax.set_ylabel('Carbon Footprint (kg CO2/kg)')
+        ax.set_title('Carbon Footprint vs Cost')
+        plt.colorbar(scatter, label='Sustainability Score')
+        st.pyplot(fig)
     st.write("### Export Results")
     if st.button("Download Recommendations as CSV"):
         csv = top_display.to_csv(index=False)
