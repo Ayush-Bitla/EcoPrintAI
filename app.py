@@ -5,6 +5,7 @@ import pickle
 import plotly.express as px
 import trimesh
 from io import BytesIO
+import joblib  # Added for potential sklearn compatibility
 
 DATA_PATH = 'materials_data.csv'
 MODEL_PATH = 'model.pkl'
@@ -15,9 +16,13 @@ def load_data():
 
 @st.cache_resource
 def load_model():
-    with open(MODEL_PATH, 'rb') as f:
-        saved_data = pickle.load(f)
-    return saved_data['model'], saved_data['feature_cols'], saved_data['norm_factor']
+    try:
+        with open(MODEL_PATH, 'rb') as f:
+            saved_data = pickle.load(f)
+        return saved_data['model'], saved_data['feature_cols'], saved_data['norm_factor']
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        st.stop()
 
 def process_stl_file(uploaded_file):
     try:
@@ -120,7 +125,11 @@ def get_recommendations(strength, flexibility, max_temp, budget, volume_cm3, sur
     filtered_data['volume_cm3'] = volume_cm3
     filtered_data['surface_area_cm2'] = surface_area_cm2
     X = filtered_data[feature_cols]
-    filtered_data['suitability_score'] = model.predict(X)
+    try:
+        filtered_data['suitability_score'] = model.predict(X)
+    except ValueError as ve:
+        st.error(f"Model prediction failed: {ve}. Check feature columns match.")
+        return None, None
     filtered_data['sustainability_score'] = filtered_data.apply(
         lambda row: compute_sustainability_score(row, carbon_w, recyclability_w, norm_factor), axis=1)
     filtered_data['combined_score'] = 0.6 * filtered_data['suitability_score'] + 0.4 * filtered_data['sustainability_score']
@@ -129,14 +138,14 @@ def get_recommendations(strength, flexibility, max_temp, budget, volume_cm3, sur
         st.write(f"Debug: Filtered data columns: {list(filtered_data.columns)}")
     return top_materials, filtered_data
 
-st.set_page_config(page_title="🌱 EcoPrint AI", page_icon="🌿", layout="wide")
-st.title("🌱 EcoPrint AI - Sustainable 3D Printing Material Recommendations")
+st.set_page_config(page_title="EcoPrint AI", page_icon="leaf", layout="wide")
+st.title("EcoPrint AI - Sustainable 3D Printing Material Recommendations")
 
 try:
     data = load_data()
     model, feature_cols, norm_factor = load_model()
-except FileNotFoundError:
-    st.error("Required files (materials_data.csv or model.pkl) are missing.")
+except FileNotFoundError as e:
+    st.error(f"Required files missing: {e}. Ensure materials_data.csv and model.pkl are in the repo root.")
     st.stop()
 
 st.sidebar.header("Project Requirements")
@@ -154,7 +163,7 @@ show_debug = st.sidebar.checkbox("Show Debug Output", value=False)
 
 # Process STL first
 if uploaded_file:
-    if uploaded_file.size > 10_000_000:  # Added size limit
+    if uploaded_file.size > 10_000_000:  # 10MB limit
         st.error("File too large (max 10MB). Please upload a smaller STL.")
         volume_cm3, surface_area_cm2, stl_bytes = 1.0, 50.0, None
     else:
@@ -170,21 +179,24 @@ top_materials, filtered_data = get_recommendations(strength, flexibility, max_te
 # Sidebar metrics
 st.sidebar.write(f"STL Volume: {volume_cm3:.2f} cm³")
 st.sidebar.write(f"STL Surface Area: {surface_area_cm2:.2f} cm²")
-material_density = top_materials.iloc[0]['density'] if top_materials is not None and not top_materials.empty and 'density' in top_materials.columns else 1.25
+material_density = top_materials['density'].iloc[0] if top_materials is not None and not top_materials.empty and 'density' in top_materials.columns else 1.25
 print_time = estimate_print_time(volume_cm3, surface_area_cm2, material_density)
 st.sidebar.write(f"Estimated Print Time: {print_time:.2f} hours")
 
-if top_materials is None:
+if top_materials is None or top_materials.empty:
     st.warning("No materials match your criteria. Try adjusting requirements or uploading a different STL file.")
 else:
     st.write("### Top Recommended Materials")
     display_cols = ['material_name', 'type', 'tensile_strength', 'flexibility', 'max_temp', 
                     'cost_per_kg', 'recyclability', 'carbon_footprint', 'sustainability_score', 
                     'volume_cm3', 'surface_area_cm2']
+    # Ensure columns exist
+    available_cols = [col for col in display_cols if col in top_materials.columns]
+    top_display = top_materials[available_cols]
     st.dataframe(
-        top_materials[display_cols].reset_index(drop=True),
+        top_display.reset_index(drop=True),
         use_container_width=True,
-        column_order=display_cols,
+        column_order=available_cols,
         column_config={
             'tensile_strength': st.column_config.NumberColumn(format="%.0f MPa"),
             'flexibility': st.column_config.NumberColumn(format="%.2f"),
@@ -199,36 +211,40 @@ else:
     )
     if show_debug:
         st.write("Debug: Full table text view:")
-        st.write(top_materials[display_cols].to_string())
+        st.write(top_display.to_string())
     st.write("### Sustainability Breakdown")
-    fig = px.bar(
-        top_materials,
-        x='material_name',
-        y=['recyclability', 'biodegradability', 'energy_efficiency'],
-        title="Sustainability Metrics Comparison",
-        barmode='group',
-        color_discrete_map={'recyclability': '#4CAF50', 'biodegradability': '#2196F3', 'energy_efficiency': '#FF9800'},
-        labels={'value': 'Score', 'variable': 'Metric'}
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    metrics = ['recyclability', 'biodegradability', 'energy_efficiency']
+    available_metrics = [m for m in metrics if m in top_materials.columns]
+    if available_metrics:
+        fig = px.bar(
+            top_materials,
+            x='material_name',
+            y=available_metrics,
+            title="Sustainability Metrics Comparison",
+            barmode='group',
+            color_discrete_map={'recyclability': '#4CAF50', 'biodegradability': '#2196F3', 'energy_efficiency': '#FF9800'},
+            labels={'value': 'Score', 'variable': 'Metric'}
+        )
+        st.plotly_chart(fig, use_container_width=True)
     st.write("### Carbon Footprint vs Cost")
-    fig2 = px.scatter(
-        top_materials,
-        x='cost_per_kg',
-        y='carbon_footprint',
-        text='material_name',
-        title="Carbon Footprint vs Cost",
-        color='sustainability_score',
-        size='sustainability_score',
-        color_continuous_scale='Viridis',
-        labels={'cost_per_kg': 'Cost ($/kg)', 'carbon_footprint': 'Carbon Footprint (kg CO2/kg)'}
-    )
-    fig2.update_traces(textposition='top center')
-    st.plotly_chart(fig2, use_container_width=True)
+    if 'cost_per_kg' in top_materials.columns and 'carbon_footprint' in top_materials.columns:
+        fig2 = px.scatter(
+            top_materials,
+            x='cost_per_kg',
+            y='carbon_footprint',
+            text='material_name',
+            title="Carbon Footprint vs Cost",
+            color='sustainability_score',
+            size='sustainability_score',
+            color_continuous_scale='Viridis',
+            labels={'cost_per_kg': 'Cost ($/kg)', 'carbon_footprint': 'Carbon Footprint (kg CO2/kg)'}
+        )
+        fig2.update_traces(textposition='top center')
+        st.plotly_chart(fig2, use_container_width=True)
     st.write("### Export Results")
     if st.button("Download Recommendations as CSV"):
-        csv = top_materials[display_cols].to_csv(index=False)
-        st.download_button("Download CSV", csv, "recommendations.csv", "text/csv")
+        csv = top_display.to_csv(index=False)
+        st.download_button("Download CSV", data=csv, file_name="recommendations.csv", mime="text/csv")
 
 if uploaded_file and stl_bytes:
     st.header("3D Model Preview")
@@ -237,4 +253,4 @@ if uploaded_file and stl_bytes:
 st.header("Learn More")
 st.write("""
 EcoPrint AI recommends sustainable 3D printing materials using a Random Forest model trained on a dataset of 25 materials. The model considers mechanical properties, sustainability metrics, and STL-derived features (volume, surface area). Data is based on industry standards from sources like Filamentive and UL Chemical Insights. Upload an STL file to tailor recommendations.
-""")    
+""")
