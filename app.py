@@ -237,4 +237,4 @@ if uploaded_file and stl_bytes:
 st.header("Learn More")
 st.write("""
 EcoPrint AI recommends sustainable 3D printing materials using a Random Forest model trained on a dataset of 25 materials. The model considers mechanical properties, sustainability metrics, and STL-derived features (volume, surface area). Data is based on industry standards from sources like Filamentive and UL Chemical Insights. Upload an STL file to tailor recommendations.
-""")
+""")    
