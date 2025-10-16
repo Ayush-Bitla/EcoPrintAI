@@ -31,6 +31,7 @@ def process_stl_file(uploaded_file):
         if volume_raw <= 0 or not mesh.is_watertight or not mesh.is_volume:
             st.warning("STL mesh is not watertight, has zero volume, or is 2D. Attempting repair and estimation.")
             mesh.fill_holes()
+            mesh.fix_normals()  # Added for better watertightness
             repaired_volume = mesh.volume / 1_000_000
             if show_debug:
                 st.write(f"Debug: Repaired volume: {repaired_volume:.3f} cm³")
@@ -69,15 +70,10 @@ def display_stl(stl_bytes):
         try:
             mesh = trimesh.load(file_obj=stl_bytes, file_type='stl')
             scene = trimesh.Scene(mesh)
-            st.image(scene.save_image(resolution=(800, 600)))
+            img_bytes = scene.save_image(resolution=(800, 600))
+            st.image(img_bytes)
         except Exception as e:
-            st.error(f"Error rendering 3D model: {e}")
-            try:
-                mesh.export('temp.stl')
-                st.warning("Falling back to static STL rendering.")
-                st.image(trimesh.load('temp.stl').save_image(resolution=(400, 300)))
-            except Exception as fallback_e:
-                st.error(f"Fallback rendering failed: {fallback_e}")
+            st.error(f"Error rendering 3D model: {e}. Preview skipped on server.")
 
 def estimate_print_time(volume_cm3, surface_area_cm2, material_density=1.25):
     density_factor = material_density / 1.25
@@ -156,28 +152,27 @@ recyclability_weight = st.sidebar.slider("Recyclability Importance", 0.0, 1.0, 0
 st.sidebar.header("Debug Options")
 show_debug = st.sidebar.checkbox("Show Debug Output", value=False)
 
-# Initialize defaults
-volume_cm3, surface_area_cm2, stl_bytes = 1.0, 50.0, None
+# Process STL first
+if uploaded_file:
+    if uploaded_file.size > 10_000_000:  # Added size limit
+        st.error("File too large (max 10MB). Please upload a smaller STL.")
+        volume_cm3, surface_area_cm2, stl_bytes = 1.0, 50.0, None
+    else:
+        volume_cm3, surface_area_cm2, stl_bytes = process_stl_file(uploaded_file)
+else:
+    volume_cm3, surface_area_cm2, stl_bytes = 1.0, 50.0, None
+    st.sidebar.info("No STL file uploaded. Using default volume (1 cm³) and surface area (50 cm²).")
+
+# Get recommendations with processed values
 st.header("Recommendations")
 top_materials, filtered_data = get_recommendations(strength, flexibility, max_temp, budget, volume_cm3, surface_area_cm2, carbon_weight, recyclability_weight)
 
-if uploaded_file:
-    volume_cm3, surface_area_cm2, stl_bytes = process_stl_file(uploaded_file)
-    if volume_cm3 is not None:
-        st.sidebar.write(f"STL Volume: {volume_cm3:.2f} cm³")
-        st.sidebar.write(f"STL Surface Area: {surface_area_cm2:.2f} cm²")
-        material_density = top_materials.iloc[0]['density'] if top_materials is not None and not top_materials.empty and 'density' in top_materials.columns else 1.25
-        print_time = estimate_print_time(volume_cm3, surface_area_cm2, material_density)
-        st.sidebar.write(f"Estimated Print Time: {print_time:.2f} hours")
-    else:
-        volume_cm3, surface_area_cm2 = 1.0, 50.0
-        print_time = estimate_print_time(volume_cm3, surface_area_cm2)
-        st.sidebar.write(f"Estimated Print Time: {print_time:.2f} hours")
-else:
-    st.sidebar.info("No STL file uploaded. Using default volume (1 cm³) and surface area (50 cm²).")
-    volume_cm3, surface_area_cm2 = 1.0, 50.0
-    print_time = estimate_print_time(volume_cm3, surface_area_cm2)
-    st.sidebar.write(f"Estimated Print Time: {print_time:.2f} hours")
+# Sidebar metrics
+st.sidebar.write(f"STL Volume: {volume_cm3:.2f} cm³")
+st.sidebar.write(f"STL Surface Area: {surface_area_cm2:.2f} cm²")
+material_density = top_materials.iloc[0]['density'] if top_materials is not None and not top_materials.empty and 'density' in top_materials.columns else 1.25
+print_time = estimate_print_time(volume_cm3, surface_area_cm2, material_density)
+st.sidebar.write(f"Estimated Print Time: {print_time:.2f} hours")
 
 if top_materials is None:
     st.warning("No materials match your criteria. Try adjusting requirements or uploading a different STL file.")
@@ -232,8 +227,8 @@ else:
     st.plotly_chart(fig2, use_container_width=True)
     st.write("### Export Results")
     if st.button("Download Recommendations as CSV"):
-        top_materials[display_cols].to_csv('recommendations.csv', index=False)
-        st.success("Recommendations exported to recommendations.csv")
+        csv = top_materials[display_cols].to_csv(index=False)
+        st.download_button("Download CSV", csv, "recommendations.csv", "text/csv")
 
 if uploaded_file and stl_bytes:
     st.header("3D Model Preview")
