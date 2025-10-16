@@ -1,0 +1,6 @@
+material_name,type,tensile_strength,flexibility,max_temp,cost_per_kg,recyclability,carbon_footprint,sustainability_score
+PETG Carbon,PETG,55,0.45,85,35,0.8,3.3,0.176692789968652
+PETG Recycled,PETG,48,0.52,80,23,0.9,2.8,0.20004926108374382
+PET,PET,48,0.48,90,23,0.85,3.0,0.18844827586206897
+PETG Clear,PETG,50,0.5,80,24,0.85,3.1,0.18768075639599552
+HIPS,HIPS,42,0.5,100,20,0.6,3.7,0.13554520037278656
