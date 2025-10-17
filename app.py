@@ -6,7 +6,10 @@ try:
     import plotly.express as px
 except ModuleNotFoundError:
     px = None
-import trimesh
+try:
+    import trimesh
+except ModuleNotFoundError:
+    trimesh = None
 from io import BytesIO
 import joblib
 
@@ -28,6 +31,9 @@ def load_model():
         st.stop()
 
 def process_stl_file(uploaded_file):
+    if trimesh is None:
+        st.warning("trimesh not available; using default geometry estimates.")
+        return 1.0, 50.0, None
     try:
         stl_data = uploaded_file.read()
         stl_bytes = BytesIO(stl_data)
@@ -74,6 +80,9 @@ def process_stl_file(uploaded_file):
         return 1.0, 50.0, None
 
 def display_stl(stl_bytes):
+    if trimesh is None:
+        st.info("3D preview disabled: trimesh not available.")
+        return
     if stl_bytes is not None:
         try:
             mesh = trimesh.load(file_obj=stl_bytes, file_type='stl')
