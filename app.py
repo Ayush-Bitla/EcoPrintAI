@@ -30,8 +30,8 @@ def load_model():
             saved_data = pickle.load(f)
         return saved_data['model'], saved_data['feature_cols'], saved_data['norm_factor']
     except Exception as e:
-        st.error(f"Error loading model: {e}")
-        st.stop()
+        st.warning(f"Error loading model: {e}. Falling back to heuristic recommendations.")
+        return None, [], 1.0
 
 def process_stl_file(uploaded_file):
     if trimesh is None:
@@ -139,15 +139,22 @@ def get_recommendations(strength, flexibility, max_temp, budget, volume_cm3, sur
     filtered_data = filtered_data.copy()
     filtered_data['volume_cm3'] = volume_cm3
     filtered_data['surface_area_cm2'] = surface_area_cm2
-    X = filtered_data[feature_cols]
-    try:
-        filtered_data['suitability_score'] = model.predict(X)
-    except ValueError as ve:
-        st.error(f"Model prediction failed: {ve}. Check feature columns.")
-        return None, None
+    if model is not None and feature_cols:
+        X = filtered_data[feature_cols]
+        try:
+            filtered_data['suitability_score'] = model.predict(X)
+        except ValueError as ve:
+            st.error(f"Model prediction failed: {ve}. Check feature columns.")
+            return None, None
+    else:
+        # Fallback: use a neutral suitability score when the ML model isn't available
+        filtered_data['suitability_score'] = 0.5
     filtered_data['sustainability_score'] = filtered_data.apply(
         lambda row: compute_sustainability_score(row, carbon_w, recyclability_w, norm_factor), axis=1)
-    filtered_data['combined_score'] = 0.6 * filtered_data['suitability_score'] + 0.4 * filtered_data['sustainability_score']
+    if model is not None and feature_cols:
+        filtered_data['combined_score'] = 0.6 * filtered_data['suitability_score'] + 0.4 * filtered_data['sustainability_score']
+    else:
+        filtered_data['combined_score'] = filtered_data['sustainability_score']
     top_materials = filtered_data.sort_values('combined_score', ascending=False).head(5)
     if show_debug:
         st.write(f"Debug: Filtered data columns: {list(filtered_data.columns)}")
