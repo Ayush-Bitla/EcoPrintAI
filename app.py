@@ -11,7 +11,10 @@ try:
 except ModuleNotFoundError:
     trimesh = None
 from io import BytesIO
-import joblib
+try:
+    import joblib
+except ModuleNotFoundError:
+    joblib = None
 
 DATA_PATH = 'materials_data.csv'
 MODEL_PATH = 'model.pkl'
