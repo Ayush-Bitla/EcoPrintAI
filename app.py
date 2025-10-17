@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import plotly.express as px
+try:
+    import plotly.express as px
+except ModuleNotFoundError:
+    px = None
 import trimesh
 from io import BytesIO
 import joblib
@@ -191,14 +194,19 @@ else:
     st.write("### Sustainability Breakdown")
     metrics = ['recyclability', 'biodegradability', 'energy_efficiency']
     avail_metrics = [m for m in metrics if m in top_materials.columns]
-    if avail_metrics:
+    if avail_metrics and px is not None:
         fig = px.bar(top_materials, x='material_name', y=avail_metrics, barmode='group', title="Sustainability Metrics")
         st.plotly_chart(fig, use_container_width=True)
+    elif avail_metrics and px is None:
+        st.info("Plotly not available; charts are disabled.")
     
     st.write("### Carbon vs Cost")
     if 'cost_per_kg' in top_materials.columns and 'carbon_footprint' in top_materials.columns:
-        fig2 = px.scatter(top_materials, x='cost_per_kg', y='carbon_footprint', color='sustainability_score', size='sustainability_score', text='material_name', title="Carbon Footprint vs Cost")
-        st.plotly_chart(fig2, use_container_width=True)
+        if px is not None:
+            fig2 = px.scatter(top_materials, x='cost_per_kg', y='carbon_footprint', color='sustainability_score', size='sustainability_score', text='material_name', title="Carbon Footprint vs Cost")
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.info("Plotly not available; charts are disabled.")
     
     st.write("### Export")
     csv = top_display.to_csv(index=False)
